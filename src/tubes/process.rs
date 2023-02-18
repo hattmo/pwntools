@@ -3,8 +3,9 @@ use crate::tubes::tube::Tube;
 use nix::pty::openpty;
 use nix::unistd::dup;
 
+use core::slice::SlicePattern;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter};
+use std::io::{self, prelude::*, BufReader, BufWriter};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::process::{Child, Stdio};
 
@@ -16,11 +17,11 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn new<'a>(command: impl Into<&'a str>) -> Result<Self, io::Error> {
+    pub fn new<'a>(command: impl Into<&'a str>, shell: Option<&'a str>) -> Result<Self, io::Error> {
         let command: &str = command.into();
         let pty_pair = openpty(None, None)?;
         unsafe {
-            let child = std::process::Command::new("/bin/bash")
+            let child = std::process::Command::new(shell.unwrap_or("/bin/bash"))
                 .arg("-c")
                 .arg(command)
                 .stdin(Stdio::from_raw_fd(pty_pair.slave))
@@ -40,36 +41,28 @@ impl Process {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use std::io::prelude::*;
-
-    use crate::Process;
-
-    #[test]
-    fn test() {
-        let proc = Process::new("whoami").expect("fail");
-
-        for line in proc.reader.lines() {
-            match line {
-                Ok(line) => println!("{}", line),
-                Err(_) => {
-                    break;
-                }
-            }
-        }
-    }
-}
-
 impl Tube for Process {
     fn get_buffer(&mut self) -> &mut Buffer {
-        todo!()
+        &mut self.buffer
     }
 
-    fn fill_buffer(&mut self, timeout: Option<std::time::Duration>) -> io::Result<usize> {}
+    fn fill_buffer(&mut self, timeout: Option<std::time::Duration>) -> io::Result<usize> {
+        let mut temp_buf: [u8; 1024] = [0; 1024];
+        let mut total: usize = 0;
+        loop {
+            let read = self.reader.read(&mut temp_buf)?;
+            let buffer = self.get_buffer();
+            buffer.add(temp_buf[..read].to_vec());
+            total += read;
+            if read < 1024 {
+                break;
+            }
+        }
+        Ok(total)
+    }
 
     fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        todo!()
+        self.writer.write_all(data.as_slice())
     }
 
     fn close(&mut self) -> io::Result<()> {
