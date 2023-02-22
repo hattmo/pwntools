@@ -1,5 +1,6 @@
 use crate::tubes::buffer::Buffer;
 use crate::tubes::tube::Tube;
+use crate::Tubeable;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -21,7 +22,7 @@ impl Sock {
     }
 }
 
-impl Tube for Sock {
+impl Tubeable for Sock {
     /// Get a mutable reference to the internal [`Buffer`].
     fn get_buffer(&mut self) -> &mut Buffer {
         &mut self.buffer

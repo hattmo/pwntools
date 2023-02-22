@@ -1,7 +1,7 @@
-use crate::info;
 use crate::tubes::buffer::Buffer;
 use crate::tubes::sock::Sock;
 use crate::tubes::tube::Tube;
+use crate::{info, Tubeable};
 use std::io;
 use std::net::TcpStream;
 use std::time::Duration;
@@ -37,7 +37,7 @@ impl Remote {
     }
 }
 
-impl Tube for Remote {
+impl Tubeable for Remote {
     /// Get a mutable reference to the [`Sock`]'s internal [`Buffer`].
     fn get_buffer(&mut self) -> &mut Buffer {
         self.sock.get_buffer()
@@ -48,7 +48,7 @@ impl Tube for Remote {
     }
     /// Send data via the [`Sock`].
     fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        self.sock.send(data)
+        self.sock.send_raw(data)
     }
     /// Close the internal [`Sock`].
     fn close(&mut self) -> io::Result<()> {

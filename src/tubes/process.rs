@@ -1,9 +1,9 @@
 use crate::tubes::buffer::Buffer;
 use crate::tubes::tube::Tube;
+use crate::Tubeable;
 use nix::pty::openpty;
 use nix::unistd::dup;
 
-use core::slice::SlicePattern;
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -41,7 +41,7 @@ impl Process {
     }
 }
 
-impl Tube for Process {
+impl Tubeable for Process {
     fn get_buffer(&mut self) -> &mut Buffer {
         &mut self.buffer
     }

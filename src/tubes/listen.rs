@@ -1,6 +1,6 @@
 use crate::tubes::buffer::Buffer;
 use crate::tubes::sock::Sock;
-use crate::tubes::tube::Tube;
+use crate::Tubeable;
 use once_cell::sync::OnceCell;
 use std::io;
 use std::net::{SocketAddr, TcpListener};
@@ -65,31 +65,38 @@ impl Listen {
     }
 }
 
-impl Tube for Listen {
+impl Tubeable for Listen {
+    fn get_reader(&mut self) -> &mut std::sync::mpsc::Receiver<Vec<u8>> {
+        todo!()
+    }
+
+    fn write(&mut self, data: Vec<u8>) -> io::Result<()> {
+        todo!()
+    }
     /// Retrieve a mutable reference to the [`Sock`]'s internal [`Buffer`]. On first call,
     /// will block until a connection is received.
-    fn get_buffer(&mut self) -> &mut Buffer {
-        self.sock_mut().unwrap().get_buffer()
-    }
+    // fn get_buffer(&mut self) -> &mut Buffer {
+    //     self.sock_mut().unwrap().get_buffer()
+    // }
 
-    /// Fill the [`Sock`]'s internal [`Buffer`]. On first call, will block until
-    /// a connection is received.
-    fn fill_buffer(&mut self, timeout: Option<Duration>) -> io::Result<usize> {
-        self.sock_mut()?.fill_buffer(timeout)
-    }
+    // /// Fill the [`Sock`]'s internal [`Buffer`]. On first call, will block until
+    // /// a connection is received.
+    // fn fill_buffer(&mut self, timeout: Option<Duration>) -> io::Result<usize> {
+    //     self.sock_mut()?.fill_buffer(timeout)
+    // }
 
-    /// Send a message via the [`Sock`]. On first call, will block until
-    /// a connection is received.
-    fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        self.sock_mut()?.send(data)
-    }
+    // /// Send a message via the [`Sock`]. On first call, will block until
+    // /// a connection is received.
+    // fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
+    //     self.sock_mut()?.send_raw(data)
+    // }
 
-    /// Close the internal [`Sock`].
-    fn close(&mut self) -> io::Result<()> {
-        if let Ok(sock) = self.sock_mut().as_mut() {
-            sock.close()
-        } else {
-            Ok(())
-        }
-    }
+    // /// Close the internal [`Sock`].
+    // fn close(&mut self) -> io::Result<()> {
+    //     if let Ok(sock) = self.sock_mut().as_mut() {
+    //         sock.close()
+    //     } else {
+    //         Ok(())
+    //     }
+    // }
 }

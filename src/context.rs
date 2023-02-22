@@ -80,6 +80,7 @@ thread_local! {
 // Setters
 /// Set the context's architecture
 pub fn set_arch(a: Arch) {
+
     CONTEXT.with(|c| c.borrow_mut().arch = a)
 }
 /// Set the context's endianess

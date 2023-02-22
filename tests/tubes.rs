@@ -6,6 +6,7 @@ use std::time::Duration;
 fn echo_sock() {
     // TCP echo server
     let mut sock = Remote::new("tcpbin.com", 4242).unwrap();
+
     let data = b"test";
     sock.sendline(*data).unwrap();
     let returned: &[u8] = &sock.recv().unwrap();
