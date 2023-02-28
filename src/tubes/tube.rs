@@ -1,22 +1,20 @@
-extern crate rustyline;
-
-use rustyline::Editor;
-use std::fmt::Display;
-use std::io::Write;
-use std::io::{self, Empty};
-
-extern crate crossbeam_utils;
 use crate::{debug, Buffer};
 use crossbeam_utils::thread;
+use rustyline::Editor;
+use std::collections::VecDeque;
+use std::fmt::Display;
+use std::io;
+use std::io::prelude::*;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 pub struct Tube<T>
 where
     T: Tubeable,
 {
     tube: T,
-    receiver: Receiver<Vec<u8>>,
-    buffer: Buffer,
+    receiver: Receiver<VecDeque<u8>>,
+    buffer: VecDeque<u8>,
+    timeout: Duration,
 }
 
 impl<T> Tube<T>
@@ -27,36 +25,52 @@ where
         Tube {
             tube,
             receiver: tube.get_receiver(),
-            buffer: Buffer::new(),
+            buffer: VecDeque::new(),
+            timeout: Duration::from_secs(1),
         }
     }
 
-    fn fill_buffer(&mut self, timeout: Option<Duration>) {
-        loop {
-            match self
-                .receiver
-                .recv_timeout(timeout.unwrap_or(Duration::ZERO))
-            {
-                Ok(chunk) => self.buffer.add(chunk),
-                Err(RecvTimeoutError::Timeout) => todo!(),
-                Err(RecvTimeoutError::Disconnected) => todo!(),
-                //
-            }
+    fn fill_buffer(&mut self, ammount: Option<usize>, timeout: Option<Duration>) {
+        let dead_line = Instant::now() + timeout.unwrap_or(Duration::ZERO);
+        while let Ok(ref mut chunk) = self.receiver.recv_deadline(dead_line) {
+            self.buffer.append(chunk);
         }
     }
 
-    pub fn clean(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
-        self.fill_buffer(Some(timeout));
-        Ok(self.buffer.get(0))
+    pub fn clean(&mut self) {
+        self.fill_buffer(None, None);
+        self.buffer.clear();
     }
+
+    // pub fn clean(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+    //     self.fill_buffer(Some(timeout));
+    //     Ok(self.buffer.get(0))
+    // }
 
     /// Receives from the `Tube`, returning once any data is available.
-    fn recv(&mut self) -> io::Result<Vec<u8>> {
-        self.recv_raw(None, None)
+    pub fn recv(&mut self) -> Vec<u8> {
+        self.fill_buffer(None, None);
+        if self.buffer.len() == 0 {
+            self.fill_buffer(None, Some(self.timeout));
+        }
+        let mut out = Vec::with_capacity(self.buffer.len());
+        self.buffer.read_to_end(&mut out);
+        out
     }
     /// Receives `n` bytes from the `Tube`.
-    fn recvn(&mut self, n: usize) -> io::Result<Vec<u8>> {
-        self.recv_raw(Some(n), None)
+    fn recvn(&mut self, n: usize) -> Result<Vec<u8>, ()> {
+        self.fill_buffer(Some(n), None);
+        let mut out = Vec::with_capacity(n);
+        if self.buffer.len() >= n {
+            self.buffer.read_exact(out.as_mut());
+            return Ok(out);
+        }
+        self.fill_buffer(Some(n), Some(self.timeout));
+        if self.buffer.len() >= n {
+            self.buffer.read_exact(out.as_mut());
+            return Ok(out);
+        }
+        Err(())
     }
 
     #[doc(hidden)]
@@ -138,7 +152,7 @@ where
 /// Generic `Tube` trait, used as the underlying interface for IO.
 pub(crate) trait Tubeable {
     /// Retrieve mutable reference to the internal [`Buffer`].
-    fn get_receiver(&self) -> Receiver<Vec<u8>>;
+    fn get_receiver(&self) -> Receiver<VecDeque<u8>>;
     /// Fill the internal [`Buffer`].
     ///
     /// * `timeout` - Maximum time to fill for. If `None`, block until data is read.
@@ -149,7 +163,7 @@ pub(crate) trait Tubeable {
     /// * `timeout` - The maximum time to read for, defaults to 0.05s. If 0, clean only the
     /// internal buffer.
     ///
-    fn write(&mut self, data: Vec<u8>) -> io::Result<()>;
+    fn send(&mut self, data: Vec<u8>) -> io::Result<()>;
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

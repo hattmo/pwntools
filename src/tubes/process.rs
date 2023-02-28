@@ -1,27 +1,37 @@
-use crate::tubes::buffer::Buffer;
-use crate::tubes::tube::Tube;
 use crate::Tubeable;
-use nix::pty::openpty;
-use nix::unistd::dup;
-
-use std::fs::File;
-use std::io::{self, prelude::*, BufReader, BufWriter};
-use std::os::fd::{FromRawFd, OwnedFd};
-use std::process::{Child, Stdio};
+use nix::{pty::openpty, unistd::dup};
+use std::{
+    collections::VecDeque,
+    ffi::OsStr,
+    fs::File,
+    io::{self, prelude::*, BufReader, BufWriter},
+    os::fd::{FromRawFd, OwnedFd},
+    process::{Child, Stdio},
+    sync::mpsc::{self, Receiver},
+    thread::{spawn, JoinHandle},
+};
 
 pub struct Process {
     child: Child,
-    reader: BufReader<File>,
+    recv: Receiver<VecDeque<u8>>,
     writer: BufWriter<File>,
-    buffer: Buffer,
+    read_job: JoinHandle<()>,
 }
 
 impl Process {
-    pub fn new<'a>(command: impl Into<&'a str>, shell: Option<&'a str>) -> Result<Self, io::Error> {
-        let command: &str = command.into();
+    pub(crate) fn new<'a, T, U>(command: U, shell: Option<T>) -> Result<Self, io::Error>
+    where
+        U: AsRef<str>,
+        T: AsRef<OsStr>,
+    {
+        let command = command.as_ref();
         let pty_pair = openpty(None, None)?;
+        let shell = match shell {
+            Some(s) => s.as_ref(),
+            None => OsStr::new("/bin/sh"),
+        };
         unsafe {
-            let child = std::process::Command::new(shell.unwrap_or("/bin/bash"))
+            let child = std::process::Command::new(shell)
                 .arg("-c")
                 .arg(command)
                 .stdin(Stdio::from_raw_fd(pty_pair.slave))
@@ -31,41 +41,43 @@ impl Process {
             drop(OwnedFd::from_raw_fd(pty_pair.slave));
             let writer = BufWriter::new(File::from_raw_fd(dup(pty_pair.master)?));
             let reader = BufReader::new(File::from_raw_fd(pty_pair.master));
+            let (send, recv) = mpsc::channel();
+            let read_job = spawn(move || {
+                let mut buf = [0u8; 256];
+                while let Ok(num_read) = reader.read(buf.as_mut()) {
+                    let out = VecDeque::with_capacity(num_read);
+                    out.extend(&buf[..num_read]);
+                    send.send(out);
+                }
+            });
             Ok(Process {
                 child,
-                reader,
+                recv,
                 writer,
-                buffer: Buffer::new(),
+                read_job,
             })
         }
+    }
+
+    pub fn wait_for_exit(&self) -> Result<std::process::ExitStatus, io::Error> {
+        self.child.wait()
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        self.child.kill();
+        self.read_job.join();
+        self.child.wait();
     }
 }
 
 impl Tubeable for Process {
-    fn get_buffer(&mut self) -> &mut Buffer {
-        &mut self.buffer
+    fn get_receiver(&self) -> Receiver<VecDeque<u8>> {
+        self.recv
     }
 
-    fn fill_buffer(&mut self, timeout: Option<std::time::Duration>) -> io::Result<usize> {
-        let mut temp_buf: [u8; 1024] = [0; 1024];
-        let mut total: usize = 0;
-        loop {
-            let read = self.reader.read(&mut temp_buf)?;
-            let buffer = self.get_buffer();
-            buffer.add(temp_buf[..read].to_vec());
-            total += read;
-            if read < 1024 {
-                break;
-            }
-        }
-        Ok(total)
-    }
-
-    fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        self.writer.write_all(data.as_slice())
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        todo!()
+    fn send(&mut self, data: Vec<u8>) -> io::Result<()> {
+        self.writer.write_all(data.as_ref())
     }
 }

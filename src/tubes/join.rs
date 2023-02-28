@@ -1,3 +1,4 @@
+
 struct Join<L, R>
 where
     L: Tubeable,
@@ -6,3 +7,5 @@ where
     left: L,
     right: R,
 }
+
+impl Tubeable for Join {}
