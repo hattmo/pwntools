@@ -1,5 +1,4 @@
-use crate::tubes::buffer::Buffer;
-use crate::tubes::tube::Tube;
+use crate::tubes::{buffer::Buffer, tube::Tube};
 use crate::Tubeable;
 use std::io;
 use std::io::{Read, Write};
@@ -23,34 +22,12 @@ impl Sock {
 }
 
 impl Tubeable for Sock {
-    /// Get a mutable reference to the internal [`Buffer`].
-    fn get_buffer(&mut self) -> &mut Buffer {
-        &mut self.buffer
-    }
-    /// Attempt to fill the internal [`Buffer`] with a given timeout.
-    fn fill_buffer(&mut self, timeout: Option<Duration>) -> io::Result<usize> {
-        self.sock.set_read_timeout(timeout)?;
-        let mut temp_buf: [u8; 1024] = [0; 1024];
-        let mut total: usize = 0;
-        loop {
-            let read = self.sock.read(&mut temp_buf)?;
-            let buffer = self.get_buffer();
-            buffer.add(temp_buf[..read].to_vec());
-            total += read;
-            if read < 1024 {
-                break;
-            }
-        }
-        Ok(total)
-    }
-    /// Send data via the [`Sock`].
-    fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        self.sock.write_all(&data)
+    fn get_receiver(&self) -> std::sync::mpsc::Receiver<std::collections::VecDeque<u8>> {
+        todo!()
     }
 
-    /// Close the internal [`Sock`].
-    fn close(&mut self) -> io::Result<()> {
-        self.sock.shutdown(Shutdown::Both)
+    fn send(&mut self, data: Vec<u8>) -> io::Result<()> {
+        todo!()
     }
 }
 

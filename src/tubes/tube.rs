@@ -1,11 +1,12 @@
-use crate::{debug, Buffer};
+use crate::debug;
 use crossbeam_utils::thread;
+use regex::bytes::{Regex, RegexBuilder};
 use rustyline::Editor;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io;
 use std::io::prelude::*;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 pub struct Tube<T>
 where
@@ -57,6 +58,7 @@ where
         self.buffer.read_to_end(&mut out);
         out
     }
+
     /// Receives `n` bytes from the `Tube`.
     fn recvn(&mut self, n: usize) -> Result<Vec<u8>, ()> {
         self.fill_buffer(Some(n), None);
@@ -73,33 +75,11 @@ where
         Err(())
     }
 
-    #[doc(hidden)]
-    fn recv_raw(&mut self, numb: Option<usize>, timeout: Option<Duration>) -> io::Result<Vec<u8>> {
-        self.fill_buffer(timeout)?;
-        let numb = numb.unwrap_or(0);
-        Ok(self.get_buffer().get(numb))
-    }
-    /// Receive all data from the `Tube`, repeatedly reading with the given `timeout`.
-    fn recvrepeat(&mut self, timeout: Option<Duration>) -> io::Result<Vec<u8>> {
-        while self.fill_buffer(timeout)? > 0 {}
-        Ok(self.get_buffer().get(0))
-    }
-    /// Writes data to the `Tube`.
-    fn send<V: Into<Vec<u8>>>(&mut self, data: V) -> io::Result<()> {
-        let data = data.into();
-        debug!("Sending {} bytes", data.len());
-        self.send_raw(data)
-    }
-    /// Appends a newline to the data before writing it to the `Tube`.
-    fn sendline<V: Into<Vec<u8>>>(&mut self, data: V) -> io::Result<()> {
-        let mut data = data.into();
-        data.push(b'\n');
-        debug!("Sending {} bytes", data.len());
-        self.send_raw(data)
-    }
-
     /// Receive until the given delimiter is received.
-    fn recvuntil(&mut self, delim: &[u8]) -> io::Result<Vec<u8>> {
+    fn recvuntil(&mut self, pattern: &str) -> io::Result<Vec<u8>> {
+        RegexBuilder::new(pattern).build();
+        let regex = Regex::new(pattern).or(Err(io::Error::other("Invalid Regex")))?;
+        self.buffer.
         let mut pos;
         loop {
             self.fill_buffer(Some(Duration::from_millis(50)))?;
@@ -114,6 +94,24 @@ where
     fn recvline(&mut self) -> io::Result<Vec<u8>> {
         self.recvuntil(b"\n")
     }
+
+    fn recvall(&mut self) -> Result<Vec<u8>, ()> {
+        Ok(vec![])
+    }
+    /// Writes data to the `Tube`.
+    fn send<V: Into<Vec<u8>>>(&mut self, data: V) -> io::Result<()> {
+        let data = data.into();
+        debug!("Sending {} bytes", data.len());
+        self.tube.send(data)
+    }
+    /// Appends a newline to the data before writing it to the `Tube`.
+    fn sendline<V: Into<Vec<u8>>>(&mut self, data: V) -> io::Result<()> {
+        let mut data = data.into();
+        data.push(b'\n');
+        debug!("Sending {} bytes", data.len());
+        self.tube.send(data)
+    }
+
     /// Get an interactive prompt for the connection. A second thread will print messages as they
     /// arrive.
     pub fn interactive(&mut self) -> io::Result<()>
@@ -149,9 +147,7 @@ where
     }
 }
 
-/// Generic `Tube` trait, used as the underlying interface for IO.
-pub(crate) trait Tubeable {
-    /// Retrieve mutable reference to the internal [`Buffer`].
+pub trait Tubeable {
     fn get_receiver(&self) -> Receiver<VecDeque<u8>>;
     /// Fill the internal [`Buffer`].
     ///
@@ -172,17 +168,21 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-struct Bytes<'a>(&'a [u8]);
+struct PrettyBytes<'a>(&'a [u8]);
 
-impl<'a> Display for Bytes<'a> {
+impl<'a> Display for PrettyBytes<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let precision = f.precision().unwrap_or(20);
-
+        self.0.into_iter().map(|b| {
+            if b.is_ascii_graphic() {
+                return String::from(char::from(*b));
+            }
+            format!("{b:2.2x}")
+        });
         write!(f, "Hello")
     }
 }
 #[test]
 fn test() {
-    let foo = b"hello";
-    println!("{:?}", foo);
+    let foo = PrettyBytes(b"hello");
+    println!("{}", foo);
 }

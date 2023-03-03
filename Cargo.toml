@@ -26,6 +26,7 @@ rustyline = {version = "9.1.2", optional = true}
 ctor = "0.1.21"
 tracing-subscriber = "0.3.9"
 nix = "0.26.2"
+regex = "1.7.1"
 
 [features]
 default = ["tubes", "elf"]
