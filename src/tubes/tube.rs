@@ -2,7 +2,6 @@ use crate::debug;
 use crossbeam_utils::thread;
 use regex::bytes::{Regex, RegexBuilder};
 use rustyline::Editor;
-use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io;
 use std::io::prelude::*;
@@ -13,8 +12,8 @@ where
     T: Tubeable,
 {
     tube: T,
-    receiver: Receiver<VecDeque<u8>>,
-    buffer: VecDeque<u8>,
+    receiver: Receiver<Vec<u8>>,
+    buffer: Vec<u8>,
     timeout: Duration,
 }
 
@@ -26,7 +25,7 @@ where
         Tube {
             tube,
             receiver: tube.get_receiver(),
-            buffer: VecDeque::new(),
+            buffer: Vec::with_capacity(1024),
             timeout: Duration::from_secs(1),
         }
     }
@@ -54,9 +53,7 @@ where
         if self.buffer.len() == 0 {
             self.fill_buffer(None, Some(self.timeout));
         }
-        let mut out = Vec::with_capacity(self.buffer.len());
-        self.buffer.read_to_end(&mut out);
-        out
+        std::mem::replace(&mut self.buffer,Vec::with_capacity(1024))
     }
 
     /// Receives `n` bytes from the `Tube`.
@@ -92,7 +89,7 @@ where
 
     /// Receive from the tube until a newline is received.
     fn recvline(&mut self) -> io::Result<Vec<u8>> {
-        self.recvuntil(b"\n")
+        self.recvuntil("\n")
     }
 
     fn recvall(&mut self) -> Result<Vec<u8>, ()> {
