@@ -9,7 +9,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 pub struct Tube<T>
 where
-    T: Tubeable,
+    T: Tubeable + Send + Sync,
 {
     tube: T,
     receiver: Receiver<Vec<u8>>,
@@ -17,9 +17,29 @@ where
     timeout: Duration,
 }
 
+impl<T> Deref for Tube<T>
+where
+    T: Tubeable + Send + Sync,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tube
+    }
+}
+
+impl<T> DerefMut for Tube<T>
+where
+    T: Tubeable + Send + Sync,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.tube
+    }
+}
+
 impl<T> Tube<T>
 where
-    T: Tubeable,
+    T: Tubeable + Send + Sync,
 {
     fn new(tube: T) -> Tube<T> {
         Tube {
@@ -32,8 +52,8 @@ where
 
     fn fill_buffer(&mut self, ammount: Option<usize>, timeout: Option<Duration>) {
         let dead_line = Instant::now() + timeout.unwrap_or(Duration::ZERO);
-        while let Ok(ref mut chunk) = self.receiver.recv_deadline(dead_line) {
-            self.buffer.append(chunk);
+        while let Ok(ref mut chunk) = self.tube.get_receiver().recv_deadline(dead_line) {
+            self.buffer.extend(chunk.iter());
         }
     }
 
@@ -74,16 +94,13 @@ where
 
     /// Receive until the given delimiter is received.
     fn recvuntil(&mut self, pattern: &str) -> io::Result<Vec<u8>> {
-        RegexBuilder::new(pattern).build();
         let regex = Regex::new(pattern).or(Err(io::Error::other("Invalid Regex")))?;
-        self.buffer.
-        let mut pos;
         loop {
-            self.fill_buffer(Some(Duration::from_millis(50)))?;
-            pos = find_subsequence(self.get_buffer().data.make_contiguous(), delim);
-            if let Some(p) = pos {
-                return Ok(self.get_buffer().get(p + 1));
+            let buf = self.buffer.make_contiguous();
+            if let Some(found) = regex.find(buf) {
+                return Ok(self.buffer.split_off(found.end()).into());
             }
+            self.fill_buffer(None, Some(self.timeout));
         }
     }
 
@@ -111,41 +128,35 @@ where
 
     /// Get an interactive prompt for the connection. A second thread will print messages as they
     /// arrive.
-    pub fn interactive(&mut self) -> io::Result<()>
+    pub fn interactive(self) -> io::Result<()>
     where
         Self: Clone + Send,
     {
-        let mut receiver = self.clone();
-        // Make sure that the receiver thread does not outlive scope
-        thread::scope(|s| {
-            s.spawn(|_| loop {
-                std::io::stdout()
-                    .write_all(
-                        &receiver
-                            .clean(Duration::from_millis(50))
-                            .unwrap_or_default(),
-                    )
-                    .expect("Couldn't write stdout")
-            });
+        let Tube { buffer, tube, .. } = self;
 
-            let mut rl = Editor::<()>::new();
-            loop {
-                if let Ok(line) = rl.readline("$ ") {
-                    if self.sendline(line).is_err() {
-                        return;
-                    }
-                } else {
+        let in_job = thread::spawn(move || loop {
+            let mut rl = Editor::<(), FileHistory>::new().unwrap();
+
+            while let Ok(line) = rl.readline("$ ") {
+                if tube.send(line.into_bytes()).is_err() {
                     return;
                 }
             }
-        })
-        .expect("Couldn't start receiving thread");
+        });
+        let receiver = self.tube.get_receiver();
+
+        let mut stdout = std::io::stdout();
+        io::copy(&mut self.buffer, &mut stdout);
+        while let Some(chunk) = receiver.iter().next() {
+            stdout.write_all(&chunk);
+        }
+        in_job.join().unwrap();
         Ok(())
     }
 }
 
 pub trait Tubeable {
-    fn get_receiver(&self) -> Receiver<VecDeque<u8>>;
+    fn get_receiver(&self) -> Receiver<Vec<u8>>;
     /// Fill the internal [`Buffer`].
     ///
     /// * `timeout` - Maximum time to fill for. If `None`, block until data is read.

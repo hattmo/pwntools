@@ -1,7 +1,6 @@
 use crate::Tubeable;
 use nix::{pty::openpty, unistd::dup};
 use std::{
-    collections::VecDeque,
     ffi::OsStr,
     fs::File,
     io::{self, prelude::*, BufReader, BufWriter},
@@ -13,7 +12,7 @@ use std::{
 
 pub struct Process {
     child: Child,
-    recv: Receiver<VecDeque<u8>>,
+    recv: Receiver<Vec<u8>>,
     writer: BufWriter<File>,
     read_job: JoinHandle<()>,
 }
@@ -27,8 +26,8 @@ impl Process {
         let command = command.as_ref();
         let pty_pair = openpty(None, None)?;
         let shell = match shell {
-            Some(s) => s.as_ref(),
-            None => OsStr::new("/bin/sh"),
+            Some(s) => s,
+            None => OsStr::new("/bin/sh").to_owned(),
         };
         unsafe {
             let child = std::process::Command::new(shell)
@@ -45,7 +44,7 @@ impl Process {
             let read_job = spawn(move || {
                 let mut buf = [0u8; 256];
                 while let Ok(num_read) = reader.read(buf.as_mut()) {
-                    let out = VecDeque::with_capacity(num_read);
+                    let out = Vec::with_capacity(num_read);
                     out.extend(&buf[..num_read]);
                     send.send(out);
                 }
@@ -73,7 +72,7 @@ impl Drop for Process {
 }
 
 impl Tubeable for Process {
-    fn get_receiver(&self) -> Receiver<VecDeque<u8>> {
+    fn get_receiver(&self) -> Receiver<Vec<u8>> {
         self.recv
     }
 

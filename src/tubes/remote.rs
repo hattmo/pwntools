@@ -1,4 +1,3 @@
-use crate::tubes::buffer::Buffer;
 use crate::tubes::sock::Sock;
 use crate::tubes::tube::Tube;
 use crate::{info, Tubeable};
@@ -38,20 +37,11 @@ impl Remote {
 }
 
 impl Tubeable for Remote {
-    /// Get a mutable reference to the [`Sock`]'s internal [`Buffer`].
-    fn get_buffer(&mut self) -> &mut Buffer {
-        self.sock.get_buffer()
+    fn get_receiver(&self) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        todo!()
     }
-    /// Attempt to fill the [`Sock`]'s internal [`Buffer`] with a given timeout.
-    fn fill_buffer(&mut self, timeout: Option<Duration>) -> io::Result<usize> {
-        self.sock.fill_buffer(timeout)
-    }
-    /// Send data via the [`Sock`].
-    fn send_raw(&mut self, data: Vec<u8>) -> io::Result<()> {
-        self.sock.send_raw(data)
-    }
-    /// Close the internal [`Sock`].
-    fn close(&mut self) -> io::Result<()> {
-        self.sock.close()
+
+    fn send(&mut self, data: Vec<u8>) -> io::Result<()> {
+        todo!()
     }
 }
